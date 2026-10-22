@@ -20,7 +20,7 @@ export default function App() {
   const [portfolioMembers, setPortfolioMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
 
-  // 3. 관리자 전용 데이터 및 세분화된 대시보드 필터 상태
+  // 3. 관리자 전용 데이터 및 세분화된 대시보드 필터 상태 
   const [allPortfoliosAdmin, setAllPortfoliosAdmin] = useState([]);
   const [allTracksAdmin, setAllTracksAdmin] = useState([]); 
   const [allFeedbacksAdmin, setAllFeedbacksAdmin] = useState([]);
