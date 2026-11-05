@@ -24,12 +24,11 @@ export default function App() {
   const [workgroupName, setWorkgroupName] = useState('새 작업방');
   const [workgroupOwnerEmail, setWorkgroupOwnerEmail] = useState(''); 
   const [workgroupMembers, setWorkgroupMembers] = useState([]);
-  const [inviteEmail, setInviteEmail] = useState('');
 
   // 스튜디오 전용 내부 탭 ('comments' | 'versions' | 'members')
   const [studioSubTab, setStudioSubTab] = useState('comments');
   const [trackVersions, setTrackVersions] = useState([
-    { id: 1, version: 'v1', title: 'viva viva viva !!', duration: '0:48', date: '2026-11-04' }
+    { id: 1, version: 'v1', label: 'v1', filename: 'viva viva viva !!', duration: 48, date: '2026-11-04' }
   ]);
   const [currentVersion, setCurrentVersion] = useState('v1');
 
@@ -82,10 +81,8 @@ export default function App() {
 
   // 6. 오디오 재생 및 트랙/피드백 상태
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(48);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [tracks, setTracks] = useState([]);
-
   const [comments, setComments] = useState([]);
   const [newCommentText, setNewCommentText] = useState('');
   const [authorName, setAuthorName] = useState('사용자');
@@ -309,7 +306,6 @@ export default function App() {
     setUser(null);
     setIsAdmin(false);
     setCurrentWorkgroupId(null);
-    setTracks([]);
     setComments([]);
     setWorkgroupMembers([]);
     setActiveTab('portfolio');
@@ -406,10 +402,13 @@ export default function App() {
 
         return {
           ...w,
+          title: w.workgroup_name,
           portfolio_name: w.workgroup_name,
           user_email: ownerEmail,
+          people: members.map((m) => ({ name: m.member_email, role: m.role || '참여자' })),
           invited_members: members.map((m) => m.member_email),
-          feedback_count: feedbackCount
+          feedback_count: feedbackCount,
+          versions: trackVersions
         };
       }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -422,7 +421,6 @@ export default function App() {
   const fetchAdminData = async () => {
     fetchAdminsFromDB();
     
-    // 1. 각 테이블별로 독립적으로 데이터 조회 (조인 의존성 및 스키마 불일치 에러 원천 차단)
     const { data: wData } = await supabase.from('workgroups').select('*').order('created_at', { ascending: false });
     const { data: pData } = await supabase.from('portfolios').select('*').order('created_at', { ascending: false });
     const { data: mData } = await supabase.from('workgroup_members').select('*');
@@ -430,12 +428,10 @@ export default function App() {
     const { data: fData } = await supabase.from('feedbacks').select('*').order('created_at', { ascending: false });
     const { data: lData } = await supabase.from('login_logs').select('*');
 
-    // 2. JS 레벨에서 맵핑용 딕셔너리(Lookup Map) 생성
     const workgroupMap = new Map((wData || []).map(w => [w.id, w]));
     const portfolioMap = new Map((pData || []).map(p => [p.id, p]));
     const trackMap = new Map((tData || []).map(t => [t.id, t]));
 
-    // 3. 트랙 데이터에 포트폴리오/작업방 정보 안전 결합
     const enhancedTracks = (tData || []).map(t => {
       const ownerW = workgroupMap.get(t.workgroup_id);
       const parentP = portfolioMap.get(t.portfolio_id);
@@ -448,7 +444,6 @@ export default function App() {
       };
     });
 
-    // 4. 피드백 데이터에 트랙 및 작업방/포트폴리오 정보 안전 결합
     const enhancedFeedbacks = (fData || []).map(f => {
       const ownerW = workgroupMap.get(f.workgroup_id);
       const targetTrack = trackMap.get(f.track_id);
@@ -463,7 +458,6 @@ export default function App() {
       };
     });
 
-    // 5. 작업방(워크그룹) 데이터 가공
     const enhancedWorkgroups = (wData || []).map(w => {
       const wMembers = (mData || []).filter(m => m.workgroup_id === w.id);
       const wTracks = (tData || []).filter(t => t.workgroup_id === w.id);
@@ -471,6 +465,7 @@ export default function App() {
 
       return {
         ...w,
+        title: w.workgroup_name,
         portfolio_name: w.workgroup_name,
         user_email: w.user_email || user?.email || '알 수 없음',
         member_count: 1 + wMembers.length,
@@ -481,7 +476,6 @@ export default function App() {
       };
     });
 
-    // 6. 포트폴리오 데이터 가공 (title 컬럼명 대응 포함)
     const enhancedPortfolios = (pData || []).map(p => {
       const pTracks = (tData || []).filter(t => t.portfolio_id === p.id);
       const pFeedbacks = (fData || []).filter(f => f.portfolio_id === p.id && f.del_yn !== 'Y');
@@ -499,13 +493,11 @@ export default function App() {
       };
     });
 
-    // 상태값 업데이트
     setAllWorkgroupsAdmin(enhancedWorkgroups);
     setAllPortfoliosAdmin(enhancedPortfolios);
     setAllTracksAdmin(enhancedTracks); 
     setAllFeedbacksAdmin(enhancedFeedbacks);
 
-    // 로그인 로그 정렬 로직
     let sortedLogs = [];
     if (lData) {
       const activeLogs = lData.filter(l => !l.logout_time).sort((a, b) => new Date(b.login_time) - new Date(a.login_time));
@@ -528,10 +520,20 @@ export default function App() {
 
     if (feedbackData) {
       const activeFeedbacks = feedbackData.filter(f => f.del_yn !== 'Y');
-      setComments(activeFeedbacks);
+      setComments(activeFeedbacks.map(f => ({
+        id: f.id,
+        name: f.author || '사용자',
+        author: f.author || '사용자',
+        at: f.timestamp || 0,
+        timestamp: f.timestamp || 0,
+        text: f.content || f.text,
+        content: f.content || f.text,
+        resolved: f.resolved || false,
+        replies: f.replies || []
+      })));
     } else {
       setComments([
-        { id: 1, author: '하린', timestamp: 7, content: '여기가 맘에 들어요 짝~짝~짝~', created_at: new Date().toISOString() }
+        { id: 1, name: '하린', author: '하린', at: 7, timestamp: 7, text: '여기가 맘에 들어요 짝~짝~짝~', content: '여기가 맘에 들어요 짝~짝~짝~', resolved: false, replies: [] }
       ]);
     }
 
@@ -570,33 +572,51 @@ export default function App() {
     }
   };
 
-  const handleAddComment = async () => {
-    if (!newCommentText) return;
-    const tStamp = Math.floor(currentTime);
+  // StudioPage 호환 핸들러 메서드들
+  const handleAddCommentStudio = (room, timeSec, textContent) => {
+    const tStamp = Math.floor(timeSec);
     const newComm = {
       id: Date.now(),
-      workgroup_id: currentWorkgroupId,
+      name: authorName,
       author: authorName,
+      at: tStamp,
       timestamp: tStamp,
-      content: newCommentText,
-      created_at: new Date().toISOString()
+      text: textContent,
+      content: textContent,
+      resolved: false,
+      replies: []
     };
 
     setComments(prev => [newComm, ...prev]);
-    setNewCommentText('');
 
-    try {
-      await supabase.from('feedbacks').insert([{
-        workgroup_id: currentWorkgroupId,
-        author: authorName,
-        text: newCommentText,
-        timestamp: tStamp,
-        view_yn: 'Y',
-        del_yn: 'N'
-      }]);
-    } catch (e) {
-      console.warn('피드백 DB 저장 예외:', e);
-    }
+    supabase.from('feedbacks').insert([{
+      workgroup_id: room.id || currentWorkgroupId,
+      author: authorName,
+      text: textContent,
+      timestamp: tStamp,
+      view_yn: 'Y',
+      del_yn: 'N'
+    }]).then(({ error }) => {
+      if (error) console.warn('피드백 저장 오류:', error);
+    });
+  };
+
+  const handleResolveCommentStudio = (room, commentId) => {
+    setComments(prev => prev.map(c => c.id === commentId ? { ...c, resolved: !c.resolved } : c));
+  };
+
+  const handleAddReplyStudio = (room, commentId, replyText) => {
+    setComments(prev => prev.map(c => {
+      if (c.id === commentId) {
+        const updatedReplies = [...(c.replies || []), { name: authorName, text: replyText, date: new Date().toLocaleDateString() }];
+        return { ...c, replies: updatedReplies };
+      }
+      return c;
+    }));
+  };
+
+  const handleUpdateCreditsStudio = (room, newCredits) => {
+    setWorkgroupMembers(newCredits.map(c => ({ member_email: c.name, role: c.role })));
   };
 
   const handleAddVersion = () => {
@@ -608,8 +628,9 @@ export default function App() {
     const newVerObj = {
       id: Date.now(),
       version: verName,
-      title: titleInput,
-      duration: '0:48',
+      label: verName,
+      filename: titleInput,
+      duration: 48,
       date: new Date().toLocaleDateString()
     };
     setTrackVersions(prev => [...prev, newVerObj]);
@@ -797,6 +818,15 @@ export default function App() {
     );
   }
 
+  const currentActiveRoom = myWorkgroups.find(w => w.id === currentWorkgroupId) || {
+    id: currentWorkgroupId,
+    title: workgroupName,
+    genre: 'Work in progress',
+    duration: 48,
+    versions: trackVersions,
+    people: [{ name: workgroupOwnerEmail || user.email, role: 'Owner' }, ...workgroupMembers.map(m => ({ name: m.member_email, role: m.role || '참여자' }))]
+  };
+
   return (
     <div style={{ maxWidth: '1050px', margin: '30px auto', padding: '24px', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '12px 16px', background: '#f8fafc', borderRadius: '10px', flexWrap: 'wrap', gap: '10px' }}>
@@ -956,24 +986,18 @@ export default function App() {
         </div>
       ) : (
         <StudioPage
-          setActiveTab={setActiveTab}
-          workgroupName={workgroupName}
-          currentVersion={currentVersion}
-          handleAddVersion={handleAddVersion}
-          waveformContainerRef={waveformContainerRef}
-          currentTime={currentTime}
-          duration={duration}
-          togglePlay={togglePlay}
-          isPlaying={isPlaying}
-          newCommentText={newCommentText}
-          setNewCommentText={setNewCommentText}
-          handleAddComment={handleAddComment}
-          studioSubTab={studioSubTab}
-          setStudioSubTab={setStudioSubTab}
-          comments={comments}
-          trackVersions={trackVersions}
-          workgroupMembers={workgroupMembers}
-          handlePublishPortfolio={handlePublishPortfolio}
+          currentRoom={currentActiveRoom}
+          roomComments={() => comments}
+          versionFor={() => trackVersions[0]}
+          onBack={() => setActiveTab('portfolio')}
+          onShare={() => alert('링크가 복사되었습니다.')}
+          onPublish={handlePublishPortfolio}
+          onAddVersion={handleAddVersion}
+          onAddComment={handleAddCommentStudio}
+          onResolveComment={handleResolveCommentStudio}
+          onAddReply={handleAddReplyStudio}
+          onUpdateCredits={handleUpdateCreditsStudio}
+          supabaseClient={supabase}
         />
       )}
     </div>
